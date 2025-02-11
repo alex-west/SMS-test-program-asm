@@ -26,15 +26,34 @@ banks 1
 ;==============================================================
 ; SMS defines
 ;==============================================================
+; TODO: See if there's a standard .h file for this
 .define VDPControl $bf
 .define VDPData $be
 .define VRAMWrite $4000
 .define CRAMWrite $c000
 
+;==============================================================
 ; RAM variables
-
+;==============================================================
 .enum $C000 export
-    tempVRAMAddr dw
+
+; VDP Mirrors
+    VDPMirror .dw
+    VDPMirror_ModeA dw
+    VDPMirror_ModeB dw
+    VDPMirror_NametableAddr dw
+    VDPMirror_SATAddr dw
+    VDPMirror_SpriteChrAddr dw
+    VDPMirror_OverscanColor dw
+    VDPMirror_XScroll dw
+    VDPMirror_YScroll dw 
+    VDPMirror_LineCounter dw
+    VDPMirror_End .dw
+    ; Sprite attribute table buffer
+    SATBuffer_YPos dsb 64  ; Y positions
+    SATBuffer_XPos dsb 128 ; X positions and tile indeces
+
+tempVRAMAddr dw
 
 
 .ende
@@ -52,11 +71,23 @@ banks 1
     jp main         ; jump to main program
 
 
+.org $0038
+interruptHandler_stub: ;{ Handles VBlank and HBlank
+    jp interruptHandler
+;}
+
+.org $0066
+;==============================================================
+; Pause button handler
+;==============================================================
+    ; Do nothing
+    retn
+
+
 ;==============================================================
 ; Interrupt Handler
 ;==============================================================
-.org $0038
-interruptHandler: ;{ Handles VBlank and HBlank
+interruptHandler: ;{
     push af
     push bc
     push de
@@ -66,15 +97,40 @@ interruptHandler: ;{ Handles VBlank and HBlank
     bit 7, a
     jr z, @branch_HBlank
         ; VBlank always:
+
         ; Updates music
         ; Resets scroll value
         ; Preps HBlank interrupts (if applicable)
         ; Only if VBlank is ready:
+            ; Write VBlank registers
+            ld hl,VDPMirror
+            ld b,VDPMirror_End-VDPMirror
+            ld c,VDPControl
+            otir
             ; Transfer data lists
             ; Transfer sprite lists
+            ;ld hl, VRAMWrite | $3F00
+            ld a, <VRAMWrite | <$3F00 ; low byte
+            out (VDPControl),a
+            ld a, >VRAMWrite | >$3F00 ; high byte
+            out (VDPControl),a
+            ld hl,SATBuffer_YPos
+            ld b,64
+            ld c,VDPData
+            otir
+            
+            ld a, < VRAMWrite | <$3F80 ; low byte
+            out (VDPControl),a
+            ld a, > VRAMWrite | >$3F80 ; high byte
+            out (VDPControl),a
+            ld hl,SATBuffer_XPos
+            ld b,128
+            ld c,VDPData
+            otir
+            
             ; Update scroll value
-            ; Updates VDP registers (if applicable)
             ; Sets "VBlank is over" flag
+            ; Read input
         @branch_HBlank:
         ; HBlank
             ; Does whatever
@@ -89,24 +145,33 @@ interruptHandler: ;{ Handles VBlank and HBlank
     reti
 ;}
 
-.org $0066
-;==============================================================
-; Pause button handler
-;==============================================================
-    ; Do nothing
-    retn
-
 ;==============================================================
 ; Main program
 ;==============================================================
 main:
     ld sp, $dff0
+    
+    ; Clear RAM
+    ld hl, $C000
+    ld bc, $2000 ; Clear all 8K
+-   xor a
+    ld (hl), a
+    inc hl
+    dec bc
+    ld a, b
+    or c
+    jr nz, -
 
     ;==============================================================
     ; Set up VDP registers
     ;==============================================================
     ld hl,VDPInitData
-    ld b,VDPInitDataEnd-VDPInitData
+    ld bc,VDPInitData_End-VDPInitData
+    ld de,VDPMirror 
+    ldir
+    
+    ld hl,VDPMirror
+    ld b,VDPMirror_End-VDPMirror
     ld c,VDPControl
     otir
 
@@ -125,26 +190,28 @@ main:
     or c
     jr nz,-
 
+clearSprites:
+    ld hl, SATBuffer_YPos
+    ld a, $D0 ; Ypos
+    ld b, $40 ; number of sprites
+    @loop:
+        ld (hl), a
+        inc hl
+        dec b
+    jr nz, @loop
+
     ;==============================================================
     ; Load palette
     ;==============================================================
 loadPalette:
+    ; 1. Set VRAM write address to CRAM (palette) address 0
     ld hl, CRAMWrite|$0000
     call SetVDPAddress
-    
+    ; 2. Output colour data
     ld hl, PortraitPal
     ld bc, PortraitPalSize
     call CopyToVDP
     
-    
-    ;; 1. Set VRAM write address to CRAM (palette) address 0
-    ;ld hl,$0000 | CRAMWrite
-    ;call SetVDPAddress
-    ;; 2. Output colour data
-    ;ld hl,PaletteData
-    ;ld bc,PaletteDataEnd-PaletteData
-    ;call CopyToVDP
-
     ;==============================================================
     ; Load tiles (font)
     ;==============================================================
@@ -216,20 +283,11 @@ writePortrait:
         jr nz, @loop
     @loopExit:
     
-clearSprites:
-    ld hl, VRAMWrite | $3F00 ; Sprite attribute table
-    call SetVDPAddress
-    
-    ld a, $D0 ; Ypos
-    ld b, $40 ; number of sprites
-    @loop:
-        out (VDPData), a
-        dec b
-    jr nz, @loop
+
 
 
     ; Turn screen on
-    ld a,%01000000
+    ld a,%01100000
 ;          ||||||`- Zoomed sprites -> 16x16 pixels
 ;          |||||`-- Doubled sprites -> 2 tiles per sprite, 8x16
 ;          ||||`--- Mega Drive mode 5 enable
@@ -237,9 +295,12 @@ clearSprites:
 ;          ||`----- 28 row/224 line mode
 ;          |`------ VBlank interrupts
 ;          `------- Enable display
+    ld (VDPMirror_ModeB), a
     out (VDPControl),a
     ld a,$81
     out (VDPControl),a
+    
+    ei
 
     ; Infinite loop to stop program
 -:  jr -
@@ -292,14 +353,14 @@ PaletteDataEnd:
 VDPInitData:
 .db $04,$80 ; Rendering properties 1
 .db $00,$81 ; Rendering properties 2
-.dw $ff,$82 ; Nametable address
-.dw $ff,$85 ; Sprite attribute table address
-.dw $fd,$86 ; Sprite tileset address
-.dw $ff,$87 ; Overscan color
-.dw $00,$88 ; X Scroll
-.dw $00,$89 ; Y Scroll
-.dw $ff,$8a ; Line Counter
-VDPInitDataEnd:
+.db $ff,$82 ; Nametable address
+.db $ff,$85 ; Sprite attribute table address
+.db $fd,$86 ; Sprite tileset address
+.db $00,$87 ; Overscan color
+.db $00,$88 ; X Scroll
+.db $00,$89 ; Y Scroll
+.db $ff,$8a ; Line Counter
+VDPInitData_End:
 
 FontData:
 .incbin "font.bin" fsize FontDataSize
