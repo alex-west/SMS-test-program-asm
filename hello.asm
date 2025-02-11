@@ -252,7 +252,7 @@ writeText:
     @loopExit:
 
 writePortrait:
-    ld hl, $3800 + $40*10 + $2*17 | VRAMWrite
+    ld hl, $3800 + $40*9 + $2*17 | VRAMWrite
     call SetVDPAddress
     ld (tempVRAMAddr), hl
 ;    ld a, h
