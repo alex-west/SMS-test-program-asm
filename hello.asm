@@ -53,8 +53,12 @@ banks 1
     SATBuffer_YPos dsb 64  ; Y positions
     SATBuffer_XPos dsb 128 ; X positions and tile indeces
 
-tempVRAMAddr dw
+; VDP Related Variables
+    VBlank_ReadyFlag db ; 1 = Ready for VBlank, 0 = VBlank is done
 
+    FrameCount db ; Counts frames
+
+    tempVRAMAddr dw
 
 .ende
 
@@ -62,10 +66,11 @@ tempVRAMAddr dw
 
 ; ROM starts here
 .bank 0 slot 0
-.org $0000
+
 ;==============================================================
 ; Boot section
 ;==============================================================
+.org $0000
     di              ; disable interrupts
     im 1            ; Interrupt mode 1
     jp main         ; jump to main program
@@ -96,6 +101,14 @@ interruptHandler: ;{
     in a,(VDPControl) ; Read status, clear interrupt flag
     bit 7, a
     jr z, @branch_HBlank
+        ; Check VBlank flag
+        ld a, (VBlank_ReadyFlag)
+        cp a, 1
+            jr nz, @exitInterrupt
+        ; Clear it
+        xor a
+        ld (VBlank_ReadyFlag), a
+        
         ; VBlank always:
 
         ; Updates music
@@ -146,7 +159,7 @@ interruptHandler: ;{
 ;}
 
 ;==============================================================
-; Main program
+; Init program
 ;==============================================================
 main:
     ld sp, $dff0
@@ -283,9 +296,6 @@ writePortrait:
         jr nz, @loop
     @loopExit:
     
-
-
-
     ; Turn screen on
     ld a,%01100000
 ;          ||||||`- Zoomed sprites -> 16x16 pixels
@@ -302,8 +312,25 @@ writePortrait:
     
     ei
 
-    ; Infinite loop to stop program
--:  jr -
+;==============================================================
+; Main program
+;==============================================================
+MainLoop:
+
+    ; TODO: Logic goes here
+    ld a, (FrameCount)
+    inc a
+    ld (FrameCount), a
+    
+    ld a, $01
+    ld (VBlank_ReadyFlag), a
+    @waitLoop:
+        halt
+        ld a, (VBlank_ReadyFlag)
+        cp a, $00
+    jr nz, @waitLoop
+    
+jr MainLoop
 
 ;==============================================================
 ; Helper functions
