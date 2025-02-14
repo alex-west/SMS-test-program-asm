@@ -29,14 +29,28 @@ banks 1
 ; TODO: See if there's a standard .h file for this
 .define VDPControl $bf
 .define VDPData $be
+.define JoyPortA $dc
+.define JoyPortB $dd
+.define Button1_bit 4
+.define Button2_bit 5
+.define ButtonR_bit 3
+.define ButtonL_bit 2
+.define ButtonD_bit 1
+.define ButtonU_bit 0
 .define VRAMWrite $4000
 .define CRAMWrite $c000
+
+
+
 
 ;==============================================================
 ; RAM variables
 ;==============================================================
 .enum $C000 export
 
+; Sprite attribute table buffer
+    SATBuffer_YPos dsb 64  ; Y positions
+    SATBuffer_XPos dsb 128 ; X positions and tile indeces
 ; VDP Mirrors
     VDPMirror .dw
     VDPMirror_ModeA dw
@@ -49,12 +63,14 @@ banks 1
     VDPMirror_YScroll dw 
     VDPMirror_LineCounter dw
     VDPMirror_End .dw
-    ; Sprite attribute table buffer
-    SATBuffer_YPos dsb 64  ; Y positions
-    SATBuffer_XPos dsb 128 ; X positions and tile indeces
 
 ; VDP Related Variables
     VBlank_ReadyFlag db ; 1 = Ready for VBlank, 0 = VBlank is done
+
+    Input_PlayerA db
+    Input_PlayerARising db
+    Input_PlayerB db
+    Input_PlayerBRising db
 
     FrameCount db ; Counts frames
 
@@ -144,6 +160,7 @@ interruptHandler: ;{
             ; Update scroll value
             ; Sets "VBlank is over" flag
             ; Read input
+            call readInput
         @branch_HBlank:
         ; HBlank
             ; Does whatever
@@ -157,6 +174,47 @@ interruptHandler: ;{
     ei ; ?
     reti
 ;}
+
+readInput: ;{
+    ; Read registers
+    in a, (JoyPortA)
+    ld d, a
+    in a, (JoyPortB)
+    ld e, a
+    
+    ; Read Player 1 inputs
+    ld a, d
+    xor a, $FF ; Invert so 1 is pressed, 0 is not pressed
+    and a, %00111111
+    ld b, a ; Temp save new input
+    ld a, (Input_PlayerA) ; Get the old input
+    xor b
+    and b
+    ld (Input_PlayerARising), a
+    ld a, b
+    ld (Input_PlayerA), a
+    
+    ; Read Player 2 inputs
+    ; Bit twiddling
+    ld a, d
+    xor $FF
+    and %11000000
+    ld b, a
+    ld a, e
+    xor $FF
+    and %00001111
+    or b
+    rlca
+    rlca
+    ; Repeat of the above
+    ld b, a
+    ld a, (Input_PlayerB) ; Get the old input
+    xor b
+    and b
+    ld (Input_PlayerBRising), a
+    ld a, b
+    ld (Input_PlayerB), a
+ret ;}
 
 ;==============================================================
 ; Init program
