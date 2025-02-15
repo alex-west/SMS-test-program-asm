@@ -445,10 +445,6 @@ Message:
 .asc "Hello world!"
 .db $ff
 
-PaletteData:
-.db $00,$3f ; Black, white
-PaletteDataEnd:
-
 ; VDP initialisation data
 VDPInitData:
 .db %00100100,$80 ; Rendering properties 1
@@ -463,15 +459,15 @@ VDPInitData:
 VDPInitData_End:
 
 FontData:
-.incbin "font.bin" fsize FontDataSize
+.incbin "gfx/font.chr" fsize FontDataSize
 
 
 PortraitMap:
-.incbin "portrait_map.bin" fsize PortraitMapSize
+.incbin "gfx/samantha.map" fsize PortraitMapSize
 PortraitChr:
-.incbin "portrait_chr.bin" fsize PortraitChrSize
+.incbin "gfx/samantha.chr" fsize PortraitChrSize
 PortraitPal:
-.incbin "portrait_pal.bin" fsize PortraitPalSize
+.incbin "gfx/samantha.pal" fsize PortraitPalSize
 
 ;.db $00 $00 $FF $0F $00 $00 $AF $00 $5F $00 $5A $00 $FF $00 $FF $0A $AF $0A
 ;    $50 $0A $A0 $0A $00 $05 $AA $0F $FA $0F $00 $0F $50 $0F
