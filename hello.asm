@@ -118,23 +118,17 @@ interruptHandler: ;{
         ; Check VBlank flag
         ld a, (VBlank_ReadyFlag)
         cp a, 1
-            jr nz, @exitInterrupt
-        ; Clear it
-        xor a
-        ld (VBlank_ReadyFlag), a
-        
-        ; VBlank always:
-
-        ; Updates music
-        ; Resets scroll value
-        ; Preps HBlank interrupts (if applicable)
-        ; Only if VBlank is ready:
-            ; Write VBlank registers
+        jr nz, @branch_EveryVBlank
+            ; Only if VBlank is ready:
+            ; Clear VBlank flag
+            xor a
+            ld (VBlank_ReadyFlag), a
+            
+            ; Write VBlank registers (incl. scroll values)
             ld hl,VDPMirror
             ld b,VDPMirror_End-VDPMirror
             ld c,VDPControl
             otir
-            ; Transfer data lists
             ; Transfer sprite lists
             ;ld hl, VRAMWrite | $3F00
             ld a, <VRAMWrite | <$3F00 ; low byte
@@ -155,10 +149,19 @@ interruptHandler: ;{
             ld c,VDPData
             otir
             
-            ; Update scroll value
-            ; Sets "VBlank is over" flag
+            ; Transfer color lists
+            
+            ; Transfer data lists
+            
             ; Read input
             call readInput
+            
+        @branch_EveryVBlank:
+            ; Updates music
+            ; Resets scroll value (in case of raster effect)
+            ; Preps HBlank interrupts (if applicable)
+        jr @exitInterrupt
+        
         @branch_HBlank:
         ; HBlank
             ; Does whatever
@@ -182,7 +185,7 @@ readInput: ;{
     
     ; Read Player 1 inputs
     ld a, d
-    xor a, $FF ; Invert so 1 is pressed, 0 is not pressed
+    cpl
     and a, %00111111
     ld b, a ; Temp save new input
     ld a, (Input_PlayerA) ; Get the old input
@@ -195,11 +198,11 @@ readInput: ;{
     ; Read Player 2 inputs
     ; Bit twiddling
     ld a, d
-    xor $FF
+    cpl
     and %11000000
     ld b, a
     ld a, e
-    xor $FF
+    cpl
     and %00001111
     or b
     rlca
@@ -463,14 +466,10 @@ FontData:
 
 
 PortraitMap:
-.incbin "gfx/samantha.map" fsize PortraitMapSize
+.incbin "gfx/gadfly.map" fsize PortraitMapSize
 PortraitChr:
-.incbin "gfx/samantha.chr" fsize PortraitChrSize
+.incbin "gfx/gadfly.chr" fsize PortraitChrSize
 PortraitPal:
-.incbin "gfx/samantha.pal" fsize PortraitPalSize
+.incbin "gfx/gadfly.pal" fsize PortraitPalSize
 
-;.db $00 $00 $FF $0F $00 $00 $AF $00 $5F $00 $5A $00 $FF $00 $FF $0A $AF $0A
-;    $50 $0A $A0 $0A $00 $05 $AA $0F $FA $0F $00 $0F $50 $0F
-;    
-;.db $00,$00,$FF,$0F,$00,$00,$AF,$00,$5F,$00,$5A,$00,$FF,$00,$FF,$0A,
-;    $AF,$0A,$50,$0A,$A0,$0A,$00,$05,$AA,$0F,$FA,$0F,$00,$0F,$50,$0F
+; EoF
