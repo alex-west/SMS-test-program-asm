@@ -41,8 +41,6 @@ banks 1
 .define CRAMWrite $c000
 
 
-
-
 ;==============================================================
 ; RAM variables
 ;==============================================================
@@ -323,7 +321,7 @@ writeText:
     @loopExit:
 
 writePortrait:
-    ld hl, $3800 + $40*9 + $2*17 | VRAMWrite
+    ld hl, $3800 + $40*9 | VRAMWrite ;+ $2*17 | VRAMWrite
     call SetVDPAddress
     ld (tempVRAMAddr), hl
 ;    ld a, h
@@ -331,7 +329,7 @@ writePortrait:
     
     ld hl, PortraitMap
     ld bc, PortraitMapSize
-    ld d, 15*$2 ; (portrait tilemap width in bytes)
+    ld d, 32*2;15*$2 ; (portrait tilemap width in bytes)
     
     @loop:
         ld a, (hl)
@@ -346,7 +344,7 @@ writePortrait:
                 ld (tempVRAMAddr), hl
                 call SetVDPAddress
             pop hl
-            ld d, 15*$2
+            ld d, 32*2;15*$2
         @endIf:
         dec bc
         ld a, b
@@ -374,11 +372,28 @@ writePortrait:
 ; Main program
 ;==============================================================
 MainLoop:
-
     ; TODO: Logic goes here
     ld a, (FrameCount)
     inc a
     ld (FrameCount), a
+    
+    ld a, (Input_PlayerA)
+    bit ButtonR_bit, a
+    jr z, @endIfA
+        ld a, (VDPMirror_XScroll)
+        inc a
+        inc a
+        ld (VDPMirror_XScroll), a
+    @endIfA:
+
+    ld a, (Input_PlayerA)
+    bit ButtonL_bit, a
+    jr z, @endIfB
+        ld a, (VDPMirror_XScroll)
+        dec a
+        dec a
+        ld (VDPMirror_XScroll), a
+    @endIfB:
     
     ld a, $01
     ld (VBlank_ReadyFlag), a
@@ -436,7 +451,7 @@ PaletteDataEnd:
 
 ; VDP initialisation data
 VDPInitData:
-.db $04,$80 ; Rendering properties 1
+.db %00100100,$80 ; Rendering properties 1
 .db $00,$81 ; Rendering properties 2
 .db $ff,$82 ; Nametable address
 .db $ff,$85 ; Sprite attribute table address
