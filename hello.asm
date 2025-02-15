@@ -65,6 +65,14 @@ banks 1
 ; VDP Related Variables
     VBlank_ReadyFlag db ; 1 = Ready for VBlank, 0 = VBlank is done
 
+; VDP Data Transfer Buffer
+    VDPTransferIndex dw ; Current index into the transfer buffer
+    ; VRAM Dest Addr
+    ; Length
+    ; Data (source implied is here)
+    VDPTransferBuffer dsb 256
+
+; Inputs
     Input_PlayerA db
     Input_PlayerARising db
     Input_PlayerB db
@@ -152,7 +160,33 @@ interruptHandler: ;{
             ; Transfer color lists
             
             ; Transfer data lists
-            
+            ld hl, VDPTransferBuffer
+            @DataTransferLoop:
+                ; Load destination address
+                ld e,(hl)
+                inc hl
+                ld d,(hl)
+                inc hl
+                ld a,e
+                or d
+                    jr z, @ExitDataTransferLoop
+                ld c,VDPControl
+                out (c),e
+                out (c),d
+                ; Load length
+                ld b,(hl)
+                ; Set hl to source
+                inc hl
+                ; Set port
+                ld c,VDPData
+                otir
+                jr @DataTransferLoop
+            @ExitDataTransferLoop:
+            xor a
+            ld (VDPTransferIndex),a
+            ld (VDPTransferIndex+1),a
+            ld (VDPTransferBuffer),a
+            ld (VDPTransferBuffer+1),a
             ; Read input
             call readInput
             
