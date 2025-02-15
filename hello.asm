@@ -336,7 +336,8 @@ loadTiles:
     ;==============================================================
 writeText:
     ; 1. Set VRAM write address to tilemap index 0
-    ld hl,$3800 + $40*2 + $2*2 | VRAMWrite
+    ld bc, $0202
+    call GetTilemapAddress
     call SetVDPAddress
     ; 2. Output tilemap data
     ld hl,Message
@@ -359,7 +360,8 @@ writeText:
     call CopyToVDP
 
 ; Write portrait tilemap
-    ld hl, VRAMWrite | $3800 + $40*9 + $2*0
+    ld bc, $0009
+    call GetTilemapAddress
     ld de, gfxInfo_SamanthaMap
     ;ld de, gfxInfo_GadflyMap
     call unsafe_WritePartialTilemap
@@ -424,6 +426,39 @@ ret ;}
 ;==============================================================
 ; Helper functions
 ;==============================================================
+
+; Given an xy pair in BC
+;  Returns a VRAM address in HL
+GetTilemapAddress:;{
+    ; VRAMWrite | ($3800 + $40*y + $2*x)
+    push de
+        ld de,$0000
+        ; x*2
+        ld a,b
+        sla a
+        ld e,a
+        ; Clear b
+        xor a
+        ld b,a
+        ; y*64
+        sla c
+        rl b
+        sla c
+        rl b
+        sla c
+        rl b
+        sla c
+        rl b
+        sla c
+        rl b
+        sla c
+        rl b
+        ld hl,VRAMWrite | $3800
+        add hl,bc
+        add hl,de
+    pop de
+ret ;}
+
 
 ; Sets the VDP address
 ; Parameters: hl = address
