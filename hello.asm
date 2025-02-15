@@ -64,7 +64,7 @@ banks 1
     VBlank_ReadyFlag db ; 1 = Ready for VBlank, 0 = VBlank is done
 
 ; VDP Data Transfer Buffer
-    VDPTransferIndex dw ; Current index into the transfer buffer (two bytes because I might expand it)
+    VDPTransferPointer dw ; Current index into the transfer buffer (two bytes because I might expand it)
     ; dw VRAM Dest Addr
     ; db Length
     ; dsb Data (source implied is here)
@@ -185,10 +185,12 @@ interruptHandler: ;{
                 jr @DataTransferLoop
             @ExitDataTransferLoop:
             xor a
-            ld (VDPTransferIndex),a
-            ld (VDPTransferIndex+1),a
             ld (VDPTransferBuffer),a
             ld (VDPTransferBuffer+1),a
+            ld a,<VDPTransferBuffer
+            ld (VDPTransferPointer),a
+            ld a,>VDPTransferBuffer
+            ld (VDPTransferPointer+1),a
             ; Read input
             call readInput
             
@@ -296,6 +298,11 @@ MainInit:;{
     ldir
     ; Copy mirrors
     call VBlank_WriteVDPRegisters
+    ; Init this silly variable
+    ld a,<VDPTransferBuffer
+    ld (VDPTransferPointer),a
+    ld a,>VDPTransferBuffer
+    ld (VDPTransferPointer+1),a
 
 ; Clear VRAM
     ld hl, VRAMWrite|$0000
@@ -384,6 +391,10 @@ PrepGame: ;{
         jr @LoopText
     @LoopTextExit:
     
+    ld bc,$0203
+    ld hl,Message
+    call unsafe_WriteString
+    
 EndPrep: ; Jump target in case I want to test skipping anything above here
 ; Turn screen on
     ld a,%11100000
@@ -408,7 +419,7 @@ EndPrep: ; Jump target in case I want to test skipping anything above here
     ld d,h
     ld hl,TilemapMessage
     ld c,TilemapMessage_End-TilemapMessage
-    call PrepCopyForVBlank
+    call safe_WriteDataToVRAM
     
 ;}
 
@@ -444,7 +455,13 @@ MainLoop: ;{
 jr MainLoop ;}
 
 WaitForVBlank: ;{
-    ; TODO: Clear the last two bytes of VDPTransferBuffer here
+    ; Clear the last two bytes of VDPTransferBuffer here
+    ld hl,(VDPTransferPointer)
+    xor a
+    ld (hl),a
+    inc hl
+    ld (hl),a
+    
     ld a, $01
     ld (VBlank_ReadyFlag), a
     @waitLoop:
@@ -566,21 +583,39 @@ unsafe_WritePartialTilemap: ;{
     @loopExit:
 ret ;}
 
+; Arguments
+; BC - xy
+; HL - String pointer
+unsafe_WriteString: ;{
+    push hl
+        call GetTilemapAddress
+        call SetVDPAddress
+    pop hl
+    ; 2. Output tilemap data
+    @Loop:
+        ld a,(hl)
+        cp $ff
+            jr z,@Exit
+        out (VDPData),a
+        xor a
+        out (VDPData),a
+        inc hl
+        jr @Loop
+    @Exit:
+ret ;}
+
 ; Args:
 ;  DE - VRAM Dest
 ;  C  - Transfer Length
 ;  HL - Data Source Pointer
-PrepCopyForVBlank: ;{
-    push hl 
-        push de
-            ; VRAM Dest Addr
-            ; Length
-            ; Data (source implied is here)
-            ld de,(VDPTransferIndex)
-            ld hl,VDPTransferBuffer
-            add hl,de
-        pop de
-        ; Write destination address
+safe_WriteDataToVRAM: ;{
+    push hl
+        ; Write things in this order
+        ;  dw VRAM Dest Addr
+        ;  db Length
+        ;  dsb Data (WRAM source implied is here)
+        ; Write VRAM destination address
+        ld hl,(VDPTransferPointer)
         ld (hl),e
         inc hl
         ld (hl),d
@@ -593,6 +628,7 @@ PrepCopyForVBlank: ;{
     xor a
     ld b,a
     ldir
+    ld (VDPTransferPointer),hl
 ret ;}
 
 ;==============================================================
