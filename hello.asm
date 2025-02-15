@@ -65,9 +65,9 @@ banks 1
 
 ; VDP Data Transfer Buffer
     VDPTransferIndex dw ; Current index into the transfer buffer (two bytes because I might expand it)
-    ; VRAM Dest Addr
-    ; Length
-    ; Data (source implied is here)
+    ; dw VRAM Dest Addr
+    ; db Length
+    ; dsb Data (source implied is here)
     VDPTransferBuffer dsb 256
 
 ; Inputs
@@ -400,6 +400,16 @@ EndPrep: ; Jump target in case I want to test skipping anything above here
     out (VDPControl),a
     
     ei
+    
+; Test VBlank
+    ld bc,$1005
+    call GetTilemapAddress
+    ld e,l
+    ld d,h
+    ld hl,TilemapMessage
+    ld c,TilemapMessage_End-TilemapMessage
+    call PrepCopyForVBlank
+    
 ;}
 
 ;==============================================================
@@ -434,6 +444,7 @@ MainLoop: ;{
 jr MainLoop ;}
 
 WaitForVBlank: ;{
+    ; TODO: Clear the last two bytes of VDPTransferBuffer here
     ld a, $01
     ld (VBlank_ReadyFlag), a
     @waitLoop:
@@ -555,6 +566,35 @@ unsafe_WritePartialTilemap: ;{
     @loopExit:
 ret ;}
 
+; Args:
+;  DE - VRAM Dest
+;  C  - Transfer Length
+;  HL - Data Source Pointer
+PrepCopyForVBlank: ;{
+    push hl 
+        push de
+            ; VRAM Dest Addr
+            ; Length
+            ; Data (source implied is here)
+            ld de,(VDPTransferIndex)
+            ld hl,VDPTransferBuffer
+            add hl,de
+        pop de
+        ; Write destination address
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        inc hl
+        ; Write transfer length
+        ld (hl),c
+        inc hl
+        ex de,hl
+    pop hl
+    xor a
+    ld b,a
+    ldir
+ret ;}
+
 ;==============================================================
 ; Data
 ;==============================================================
@@ -566,6 +606,10 @@ map " " to "~" = 0
 Message:
 .asc "Hello world!"
 .db $ff
+
+TilemapMessage:
+.asc "H e l l o   w o r l d ! " ; Note: Don't do this.
+TilemapMessage_End:
 
 FontData:
 .incbin "gfx/font.chr" fsize FontDataSize
