@@ -81,6 +81,7 @@ banks 1
     FrameCount db ; Counts frames
 
     tempVRAMAddr dw
+    tempVRAMWidth db
 
 .ende
 
@@ -314,8 +315,8 @@ loadPalette:
     ld hl, CRAMWrite|$0000
     call SetVDPAddress
     ; 2. Output colour data
-    ld hl, PortraitPal
-    ld bc, PortraitPalSize
+    ld hl, gfx_SamanthaPal ; PortraitPal
+    ld bc, SamanthaPalSize ; PortraitPalSize
     call CopyToVDP
     
     ;==============================================================
@@ -328,13 +329,6 @@ loadTiles:
     ; 2. Output tile data
     ld hl,FontData              ; Location of tile data
     ld bc,FontDataSize          ; Counter for number of bytes to write
-    call CopyToVDP
-
-    ; Load portrait tiles
-    ld hl, $0C00 | VRAMWrite
-    call SetVDPAddress
-    ld hl, PortraitChr
-    ld bc, PortraitChrSize
     call CopyToVDP
 
     ;==============================================================
@@ -357,37 +351,18 @@ writeText:
         jr @loop
     @loopExit:
 
-writePortrait:
-    ld hl, $3800 + $40*9 | VRAMWrite ;+ $2*17 | VRAMWrite
+; Load portrait tiles
+    ld hl, $0C00 | VRAMWrite
     call SetVDPAddress
-    ld (tempVRAMAddr), hl
-;    ld a, h
-;    ld tempVRAMAddr+1, a
-    
-    ld hl, PortraitMap
-    ld bc, PortraitMapSize
-    ld d, 32*2;15*$2 ; (portrait tilemap width in bytes)
-    
-    @loop:
-        ld a, (hl)
-        out (VDPData), a
-        inc hl
-        dec d
-        jr nz, @endIf
-            push hl
-                ld hl, (tempVRAMAddr)
-                ld de, $0040 ; Add one row
-                add hl, de
-                ld (tempVRAMAddr), hl
-                call SetVDPAddress
-            pop hl
-            ld d, 32*2;15*$2
-        @endIf:
-        dec bc
-        ld a, b
-        or c
-        jr nz, @loop
-    @loopExit:
+    ld hl, gfx_SamanthaChr
+    ld bc, SamanthaChrSize
+    call CopyToVDP
+
+; Write portrait tilemap
+    ld hl, VRAMWrite | $3800 + $40*9 + $2*0
+    ld de, gfxInfo_SamanthaMap
+    ;ld de, gfxInfo_GadflyMap
+    call unsafe_WritePartialTilemap
     
     ; Turn screen on
     ld a,%01100000
@@ -436,7 +411,7 @@ MainLoop:
     
 jr MainLoop
 
-WaitForVBlank:
+WaitForVBlank: ;{
     ld a, $01
     ld (VBlank_ReadyFlag), a
     @waitLoop:
@@ -444,35 +419,87 @@ WaitForVBlank:
         ld a, (VBlank_ReadyFlag)
         cp a, $00
     jr nz, @waitLoop
-ret
+ret ;}
 
 ;==============================================================
 ; Helper functions
 ;==============================================================
 
-SetVDPAddress:
 ; Sets the VDP address
 ; Parameters: hl = address
+SetVDPAddress:
     push af
         ld a,l
         out (VDPControl),a
         ld a,h
         out (VDPControl),a
     pop af
-    ret
+ret
 
-CopyToVDP:
 ; Copies data to the VDP
 ; Parameters: hl = data address, bc = data length
 ; Affects: a, hl, bc
--:  ld a,(hl)    ; Get data byte
-    out (VDPData),a
-    inc hl       ; Point to next letter
-    dec bc
-    ld a,b
-    or c
-    jr nz,-
-    ret
+CopyToVDP: ;{
+    @Loop:
+        ld a,(hl)    ; Get data byte
+        out (VDPData),a
+        inc hl       ; Point to next byte
+        dec bc
+        ld a,b
+        or c
+    jr nz,@Loop
+ret ;}
+
+; Arguments
+;  HL - VRAM Destination Addr
+;  DE - Pointer to Tilemap info (data pointer, data size, width)
+unsafe_WritePartialTilemap: ;{
+    call SetVDPAddress
+    ld (tempVRAMAddr), hl
+    
+    ; Juggle registers
+    ld l,e
+    ld h,d    
+    ; Load pointer to data
+    ld e,(hl)
+    inc hl
+    ld d,(hl)
+    inc hl
+    ; Load length of data
+    ld c,(hl)
+    inc hl
+    ld b,(hl)
+    inc hl
+    ; Load width of tilemap
+    ld a,(hl)
+    add a ; Don't forget to convert width from tiles to bytes :)
+    ld (tempVRAMWidth),a
+    ld l,e ; Finally finish juggling registers
+    ld h,d
+    ld d,a
+    
+    @loop:
+        ld a, (hl)
+        out (VDPData), a
+        inc hl
+        dec d
+        jr nz, @endIf
+            push hl
+                ld hl, (tempVRAMAddr)
+                ld de, $0040 ; Add one row
+                add hl, de
+                ld (tempVRAMAddr), hl
+                call SetVDPAddress
+            pop hl
+            ld a,(tempVRAMWidth)
+            ld d, a
+        @endIf:
+        dec bc
+        ld a, b
+        or c
+        jr nz, @loop
+    @loopExit:
+ret ;}
 
 ;==============================================================
 ; Data
@@ -502,12 +529,29 @@ VDPInitData_End:
 FontData:
 .incbin "gfx/font.chr" fsize FontDataSize
 
+gfxInfo_SamanthaMap:
+    .dw gfx_SamanthaMap, SamanthaMapSize
+    .db 32
 
-PortraitMap:
-.incbin "gfx/gadfly.map" fsize PortraitMapSize
-PortraitChr:
-.incbin "gfx/gadfly.chr" fsize PortraitChrSize
-PortraitPal:
-.incbin "gfx/gadfly.pal" fsize PortraitPalSize
+gfx_SamanthaMap:
+.incbin "gfx/samantha.map" fsize SamanthaMapSize
+gfx_SamanthaChr:
+.incbin "gfx/samantha.chr" fsize SamanthaChrSize
+gfx_SamanthaPal:
+.incbin "gfx/samantha.pal" fsize SamanthaPalSize
+
+
+gfxInfo_GadflyMap:
+    .dw gfx_GadflyMap, GadflyMapSize
+    .db 32
+
+gfx_GadflyMap:
+.incbin "gfx/gadfly.map" fsize GadflyMapSize
+gfx_GadflyChr:
+.incbin "gfx/gadfly.chr" fsize GadflyChrSize
+gfx_GadflyPal:
+.incbin "gfx/gadfly.pal" fsize GadflyPalSize
+
+
 
 ; EoF
