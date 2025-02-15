@@ -66,7 +66,7 @@ banks 1
     VBlank_ReadyFlag db ; 1 = Ready for VBlank, 0 = VBlank is done
 
 ; VDP Data Transfer Buffer
-    VDPTransferIndex dw ; Current index into the transfer buffer
+    VDPTransferIndex dw ; Current index into the transfer buffer (two bytes because I might expand it)
     ; VRAM Dest Addr
     ; Length
     ; Data (source implied is here)
@@ -432,6 +432,11 @@ MainLoop:
         ld (VDPMirror_XScroll), a
     @endIfB:
     
+    call WaitForVBlank
+    
+jr MainLoop
+
+WaitForVBlank:
     ld a, $01
     ld (VBlank_ReadyFlag), a
     @waitLoop:
@@ -439,8 +444,7 @@ MainLoop:
         ld a, (VBlank_ReadyFlag)
         cp a, $00
     jr nz, @waitLoop
-    
-jr MainLoop
+ret
 
 ;==============================================================
 ; Helper functions
