@@ -373,24 +373,6 @@ PrepGame: ;{
     call unsafe_WritePartialTilemap
 
 ; Write text to name table
-; TODO: Spin this off to its own function.
-    ; 1. Set VRAM write address to tilemap index 0
-    ld bc, $0202
-    call GetTilemapAddress
-    call SetVDPAddress
-    ; 2. Output tilemap data
-    ld hl,Message
-    @LoopText:
-        ld a,(hl)
-        cp $ff
-            jr z,@LoopTextExit
-        out (VDPData),a
-        xor a
-        out (VDPData),a
-        inc hl
-        jr @LoopText
-    @LoopTextExit:
-    
     ld bc,$0203
     ld hl,Message
     call unsafe_WriteString
