@@ -420,7 +420,13 @@ EndPrep: ; Jump target in case I want to test skipping anything above here
     ld hl,TilemapMessage
     ld c,TilemapMessage_End-TilemapMessage
     call safe_WriteDataToVRAM
+
+    call WaitForVBlank
     
+    ld bc,$0F04
+    ld hl,Message
+    call safe_WriteString
+
 ;}
 
 ;==============================================================
@@ -604,6 +610,55 @@ unsafe_WriteString: ;{
     @Exit:
 ret ;}
 
+; Arguments
+; BC - xy
+; HL - String pointer
+safe_WriteString: ;{
+    ; Write VRAM destination address
+    push hl
+        call GetTilemapAddress
+        ld e,l
+        ld d,h
+        ld hl,(VDPTransferPointer)
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        inc hl
+        ; Save address to write length to
+        ld e,l
+        ld d,h
+        inc hl
+        ld (VDPTransferPointer),hl
+        ld ix,(VDPTransferPointer)
+    pop hl
+        
+    ; 2. Output tilemap data
+    xor a
+    ld b,a ; B will keep track of the string length
+    @Loop:
+        ; Read letter
+        ld a,(hl)
+        cp $ff
+            jr z,@Exit
+        ld (ix+0),a
+        inc ix
+        xor a
+        ld (ix+0),a
+        inc ix
+        inc hl
+        inc b
+        inc b
+        jr @Loop
+    @Exit:
+    ;Save IX to VDPTransferPointer
+    push ix
+    pop hl
+    ld (VDPTransferPointer),hl
+    ;Save length
+    ex de,hl
+    ld (hl),b
+ret ;}
+
 ; Args:
 ;  DE - VRAM Dest
 ;  C  - Transfer Length
@@ -628,6 +683,7 @@ safe_WriteDataToVRAM: ;{
     xor a
     ld b,a
     ldir
+    ex de,hl
     ld (VDPTransferPointer),hl
 ret ;}
 
@@ -644,7 +700,7 @@ Message:
 .db $ff
 
 TilemapMessage:
-.asc "H e l l o   w o r l d ! " ; Note: Don't do this.
+.asc "H e l l o   w o r l d ! ! " ; Note: Don't do this.
 TilemapMessage_End:
 
 FontData:
