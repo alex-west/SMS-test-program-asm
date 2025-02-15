@@ -1,12 +1,10 @@
 ;==============================================================
 ; SDSC tag and SMS rom header
 ;==============================================================
-.sdsctag 0.1,"Hello World!","SMS programming test program","Alex West"
+.sdsctag 0.1,"Hello World!","SMS test program","Alex West"
 
 ; based on Maxim's "Hello World!" tutorial, found here:
 ; https://www.smspower.org/maxim/HowToProgram/Index
-
-;.sdsctag 1.2,"Hello World!","SMS programming tutorial program - enhanced version","Maxim"
 
 ;==============================================================
 ; WLA-DX banking setup
@@ -77,6 +75,7 @@ banks 1
     Input_PlayerARising db
     Input_PlayerB db
     Input_PlayerBRising db
+    Input_PauseFlag db
 
     FrameCount db ; Counts frames
 
@@ -94,23 +93,24 @@ banks 1
 ; Boot section
 ;==============================================================
 .org $0000
+Boot:
     di              ; disable interrupts
     im 1            ; Interrupt mode 1
-    jp main         ; jump to main program
-
+    ld sp, $dff0
+    jp MainInit     ; jump to main program
 
 .org $0038
 interruptHandler_stub: ;{ Handles VBlank and HBlank
     jp interruptHandler
 ;}
 
-.org $0066
-;==============================================================
-; Pause button handler
-;==============================================================
-    ; Do nothing
-    retn
-
+.org $0066 ; Pause button handler
+pauseButtonHandler: ;{
+    push af
+        ld a,$01
+        ld (Input_PauseFlag),a
+    pop af
+retn ;}
 
 ;==============================================================
 ; Interrupt Handler
@@ -134,10 +134,11 @@ interruptHandler: ;{
             ld (VBlank_ReadyFlag), a
             
             ; Write VBlank registers (incl. scroll values)
-            ld hl,VDPMirror
-            ld b,VDPMirror_End-VDPMirror
-            ld c,VDPControl
-            otir
+            call VBlank_WriteVDPRegisters
+            ;ld hl,VDPMirror
+            ;ld b,VDPMirror_End-VDPMirror
+            ;ld c,VDPControl
+            ;otir
             ; Transfer sprite lists
             ;ld hl, VRAMWrite | $3F00
             ld a, <VRAMWrite | <$3F00 ; low byte
@@ -211,6 +212,13 @@ interruptHandler: ;{
     reti
 ;}
 
+VBlank_WriteVDPRegisters: ;{
+    ld hl,VDPMirror
+    ld b,VDPMirror_End-VDPMirror
+    ld c,VDPControl
+    otir
+ret ;}
+
 readInput: ;{
     ; Read registers
     in a, (JoyPortA)
@@ -253,64 +261,79 @@ readInput: ;{
 ret ;}
 
 ;==============================================================
-; Init program
+; Init System
 ;==============================================================
-main:
-    ld sp, $dff0
-    
-    ; Clear RAM
-    ld hl, $C000
-    ld bc, $2000 ; Clear all 8K
--   xor a
-    ld (hl), a
-    inc hl
-    dec bc
-    ld a, b
-    or c
-    jr nz, -
+VDPInitData:;{ ; VDP initialisation data
+    .db %00100100,$80 ; Rendering properties 1
+    .db %10000000,$81 ; Rendering properties 2
+    .db $ff,$82 ; Nametable address
+    .db $ff,$85 ; Sprite attribute table address
+    .db $fd,$86 ; Sprite tileset address
+    .db $00,$87 ; Overscan color
+    .db $00,$88 ; X Scroll
+    .db $00,$89 ; Y Scroll
+    .db $ff,$8a ; Line Counter
+VDPInitData_End: ;}
 
-    ;==============================================================
-    ; Set up VDP registers
-    ;==============================================================
+MainInit:;{
+; Clear RAM
+    ld hl, $C000
+    ld bc, $2000 ; Clear all 8K (note: this clobbers the stack)
+    @LoopRAM:
+        xor a
+        ld (hl), a
+        inc hl
+        dec bc
+        ld a, b
+        or c
+    jr nz, @LoopRAM
+
+; Initialize VDP
+    ; Set up mirrors
     ld hl,VDPInitData
     ld bc,VDPInitData_End-VDPInitData
     ld de,VDPMirror 
     ldir
-    
-    ld hl,VDPMirror
-    ld b,VDPMirror_End-VDPMirror
-    ld c,VDPControl
-    otir
+    ; Copy mirrors
+    call VBlank_WriteVDPRegisters
 
-    ;==============================================================
-    ; Clear VRAM
-    ;==============================================================
-    ; 1. Set VRAM write address to $0000
-    ld hl,$0000 | VRAMWrite
+; Clear VRAM
+    ld hl, VRAMWrite|$0000
     call SetVDPAddress
-    ; 2. Output 16KB of zeroes
     ld bc,$4000     ; Counter for 16KB of VRAM
--:  xor a
-    out (VDPData),a ; Output to VRAM address, which is auto-incremented after each write
-    dec bc
-    ld a,b
-    or c
-    jr nz,-
+    @LoopVRAM:
+        xor a
+        out (VDPData),a ; Output to VRAM address, which is auto-incremented after each write
+        dec bc
+        ld a,b
+        or c
+    jr nz,@LoopVRAM
 
-clearSprites:
+; Clear CRAM
+    ld hl, CRAMWrite|$0000
+    call SetVDPAddress
+    ld b,32
+    xor a
+    @LoopCRAM:
+        out (VDPData),a
+    djnz @LoopCRAM
+
+; Clear Sprites
     ld hl, SATBuffer_YPos
     ld a, $D0 ; Ypos
     ld b, $40 ; number of sprites
-    @loop:
+    @LoopSAT:
         ld (hl), a
         inc hl
         dec b
-    jr nz, @loop
+    jr nz, @LoopSAT
+;}
 
-    ;==============================================================
-    ; Load palette
-    ;==============================================================
-loadPalette:
+;==============================================================
+; Prep Before Main Loop
+;==============================================================
+PrepGame: ;{
+; Load Palette
     ; 1. Set VRAM write address to CRAM (palette) address 0
     ld hl, CRAMWrite|$0000
     call SetVDPAddress
@@ -319,10 +342,7 @@ loadPalette:
     ld bc, SamanthaPalSize ; PortraitPalSize
     call CopyToVDP
     
-    ;==============================================================
-    ; Load tiles (font)
-    ;==============================================================
-loadTiles:
+; Load Font
     ; 1. Set VRAM write address to tile index 0
     ld hl,$0000 | VRAMWrite
     call SetVDPAddress
@@ -330,27 +350,6 @@ loadTiles:
     ld hl,FontData              ; Location of tile data
     ld bc,FontDataSize          ; Counter for number of bytes to write
     call CopyToVDP
-
-    ;==============================================================
-    ; Write text to name table
-    ;==============================================================
-writeText:
-    ; 1. Set VRAM write address to tilemap index 0
-    ld bc, $0202
-    call GetTilemapAddress
-    call SetVDPAddress
-    ; 2. Output tilemap data
-    ld hl,Message
-    @loop:
-        ld a,(hl)
-        cp $ff
-        jr z,@loopExit
-        out (VDPData),a
-        xor a
-        out (VDPData),a
-        inc hl
-        jr @loop
-    @loopExit:
 
 ; Load portrait tiles
     ld hl, $0C00 | VRAMWrite
@@ -365,9 +364,29 @@ writeText:
     ld de, gfxInfo_SamanthaMap
     ;ld de, gfxInfo_GadflyMap
     call unsafe_WritePartialTilemap
+
+; Write text to name table
+; TODO: Spin this off to its own function.
+    ; 1. Set VRAM write address to tilemap index 0
+    ld bc, $0202
+    call GetTilemapAddress
+    call SetVDPAddress
+    ; 2. Output tilemap data
+    ld hl,Message
+    @LoopText:
+        ld a,(hl)
+        cp $ff
+            jr z,@LoopTextExit
+        out (VDPData),a
+        xor a
+        out (VDPData),a
+        inc hl
+        jr @LoopText
+    @LoopTextExit:
     
-    ; Turn screen on
-    ld a,%01100000
+EndPrep: ; Jump target in case I want to test skipping anything above here
+; Turn screen on
+    ld a,%11100000
 ;          ||||||`- Zoomed sprites -> 16x16 pixels
 ;          |||||`-- Doubled sprites -> 2 tiles per sprite, 8x16
 ;          ||||`--- Mega Drive mode 5 enable
@@ -381,11 +400,12 @@ writeText:
     out (VDPControl),a
     
     ei
+;}
 
 ;==============================================================
 ; Main program
 ;==============================================================
-MainLoop:
+MainLoop: ;{
     ; TODO: Logic goes here
     ld a, (FrameCount)
     inc a
@@ -411,7 +431,7 @@ MainLoop:
     
     call WaitForVBlank
     
-jr MainLoop
+jr MainLoop ;}
 
 WaitForVBlank: ;{
     ld a, $01
@@ -459,17 +479,16 @@ GetTilemapAddress:;{
     pop de
 ret ;}
 
-
 ; Sets the VDP address
 ; Parameters: hl = address
-SetVDPAddress:
+SetVDPAddress: ;{
     push af
         ld a,l
         out (VDPControl),a
         ld a,h
         out (VDPControl),a
     pop af
-ret
+ret ;}
 
 ; Copies data to the VDP
 ; Parameters: hl = data address, bc = data length
@@ -547,19 +566,6 @@ map " " to "~" = 0
 Message:
 .asc "Hello world!"
 .db $ff
-
-; VDP initialisation data
-VDPInitData:
-.db %00100100,$80 ; Rendering properties 1
-.db $00,$81 ; Rendering properties 2
-.db $ff,$82 ; Nametable address
-.db $ff,$85 ; Sprite attribute table address
-.db $fd,$86 ; Sprite tileset address
-.db $00,$87 ; Overscan color
-.db $00,$88 ; X Scroll
-.db $00,$89 ; Y Scroll
-.db $ff,$8a ; Line Counter
-VDPInitData_End:
 
 FontData:
 .incbin "gfx/font.chr" fsize FontDataSize
