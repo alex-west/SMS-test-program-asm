@@ -377,11 +377,14 @@ PrepGame: ;{
     ld de, gfxInfo_SamanthaMap
     ;ld de, gfxInfo_GadflyMap
     call unsafe_WritePartialTilemap
-
-; Write text to name table
-    ld bc,$0203
-    ld hl,Message
-    call unsafe_WriteString
+    
+; Prepare text writer object
+    ld hl, Message
+    ld (objCharPointer),hl
+    ld a,5
+    ld (objX),a
+    ld a,4
+    ld (objY),a
     
 MainScreenTurnOn: ; Jump target in case I want to test skipping anything above here
 ; Turn screen on
@@ -398,34 +401,7 @@ MainScreenTurnOn: ; Jump target in case I want to test skipping anything above h
     ld a,$81
     out (VDPControl),a
     
-    ei
-    
-; Test VBlank
-    ld bc,$1005
-    call GetTilemapAddress
-    ld e,l
-    ld d,h
-    ld hl,TilemapMessage
-    ld c,TilemapMessage_End-TilemapMessage
-    call safe_WriteDataToVRAM
-
-    call WaitForVBlank
-    
-    ld bc,$0F04
-    ld hl,Message
-    call safe_WriteString
-    
-    ld bc,$1202
-    ld de,$0100
-    call safe_WriteChar
-    
-    ; Prepare text writer object
-    ld hl, Message
-    ld (objCharPointer),hl
-    ld a,11
-    ld (objX),a
-    ld a,7
-    ld (objY),a
+    ei    
 ;}
 
 ;==============================================================
