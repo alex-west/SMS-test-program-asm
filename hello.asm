@@ -82,6 +82,12 @@ banks 1
     tempVRAMAddr dw
     tempVRAMWidth db
 
+; Object Test Variables
+    objTimer db
+    objCharPointer dw
+    objX db
+    objY db
+
 .ende
 
 
@@ -377,7 +383,7 @@ PrepGame: ;{
     ld hl,Message
     call unsafe_WriteString
     
-EndPrep: ; Jump target in case I want to test skipping anything above here
+MainScreenTurnOn: ; Jump target in case I want to test skipping anything above here
 ; Turn screen on
     ld a,%11100000
 ;          ||||||`- Zoomed sprites -> 16x16 pixels
@@ -408,7 +414,18 @@ EndPrep: ; Jump target in case I want to test skipping anything above here
     ld bc,$0F04
     ld hl,Message
     call safe_WriteString
-
+    
+    ld bc,$1202
+    ld de,$0100
+    call safe_WriteChar
+    
+    ; Prepare text writer object
+    ld hl, Message
+    ld (objCharPointer),hl
+    ld a,11
+    ld (objX),a
+    ld a,7
+    ld (objY),a
 ;}
 
 ;==============================================================
@@ -438,6 +455,8 @@ MainLoop: ;{
         ld (VDPMirror_XScroll), a
     @endIfB:
     
+    call WriteString
+    
     call WaitForVBlank
     
 jr MainLoop ;}
@@ -457,6 +476,40 @@ WaitForVBlank: ;{
         ld a, (VBlank_ReadyFlag)
         cp a, $00
     jr nz, @waitLoop
+ret ;}
+
+WriteString: ;{
+    ld a,(objTimer)
+    inc a
+    ld (objTimer),a
+    cp 5
+    jr nz, @End
+        ; Reset timer
+        xor a
+        ld (objTimer),a
+        ; Get char, set char and attr
+        ld hl,(objCharPointer)
+        ld a,(hl)
+        cp $ff
+            jr z, @End
+        ; Set char
+        ld d,a
+        xor a
+        ld e,a
+        ; Increment pointer
+        inc hl
+        ld (objCharPointer),hl
+        ; Get x,y
+        ld a,(objX)
+        ld b,a
+        ld a,(objY)
+        ld c,a
+        call safe_WriteChar
+        ; Increment cursor
+        ld a,(objX)
+        inc a
+        ld (objX),a
+    @End:
 ret ;}
 
 ;==============================================================
@@ -641,6 +694,34 @@ safe_WriteString: ;{
     ld (hl),b
 ret ;}
 
+; Arguments
+; BC - xy
+; DE - character, attributes
+safe_WriteChar: ;{
+    ; Write VRAM destination address
+    push de
+        call GetTilemapAddress
+        ld e,l
+        ld d,h
+        ld hl,(VDPTransferPointer)
+        ld (hl),e
+        inc hl
+        ld (hl),d
+        inc hl
+    pop de
+    ; Write length
+    ld a,2
+    ld (hl),a
+    inc hl
+    ; Write char, attribute
+    ld (hl),d
+    inc hl
+    ld (hl),e
+    inc hl
+    ; Save transfer pointer
+    ld (VDPTransferPointer),hl
+ret ;}
+
 ; Args:
 ;  DE - VRAM Dest
 ;  C  - Transfer Length
@@ -678,7 +759,7 @@ map " " to "~" = 0
 .enda
 
 Message:
-.asc "Hello world!"
+.asc "Hello world!!!"
 .db $ff
 
 TilemapMessage:
