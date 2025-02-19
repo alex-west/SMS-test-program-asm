@@ -88,6 +88,13 @@ banks 1
     objX db
     objY db
 
+; Raster Effect Variables
+    ; TODO: Use a tabular approach
+    Raster_LineCounterNext db
+    Raster_XScroll db
+    RasterMirror_LineCounterNext db
+    RasterMirror_XScroll db
+    
 .ende
 
 
@@ -141,10 +148,6 @@ interruptHandler: ;{
             
             ; Write VBlank registers (incl. scroll values)
             call VBlank_WriteVDPRegisters
-            ;ld hl,VDPMirror
-            ;ld b,VDPMirror_End-VDPMirror
-            ;ld c,VDPControl
-            ;otir
             ; Transfer sprite lists
             ;ld hl, VRAMWrite | $3F00
             ld a, <VRAMWrite | <$3F00 ; low byte
@@ -165,7 +168,13 @@ interruptHandler: ;{
             ld c,VDPData
             otir
             
-            ; Transfer color lists
+            ; Update raster tables
+            ld a,(RasterMirror_LineCounterNext)
+            ld (Raster_LineCounterNext),a
+            ld a,(RasterMirror_XScroll)
+            ld (Raster_XScroll),a
+            
+            ; Transfer color lists (must happen during actual VBlank?)
             
             ; Transfer data lists
             ld hl, VDPTransferBuffer
@@ -208,9 +217,17 @@ interruptHandler: ;{
         
         @branch_HBlank:
         ; HBlank
-            ; Does whatever
-            ; Sets up next HBlank interrupt (if applicable)
-
+            ; Write value for next line and x scroll
+            ld a, (Raster_LineCounterNext)
+            out (VDPControl),a
+            ld a, $8A
+            out (VDPControl),a
+            
+            ld a, (Raster_XScroll) 
+            out (VDPControl),a
+            ld a, $88
+            out (VDPControl),a
+            ; Set up next interrupt
 @exitInterrupt            
     pop hl
     pop de
@@ -272,7 +289,7 @@ ret ;}
 ; Init System
 ;==============================================================
 VDPInitData:;{ ; VDP initialisation data
-    .db %00100100,$80 ; Rendering properties 1
+    .db %01110100,$80 ; Rendering properties 1
     .db %10000000,$81 ; Rendering properties 2
     .db $ff,$82 ; Nametable address
     .db $ff,$85 ; Sprite attribute table address
@@ -280,7 +297,7 @@ VDPInitData:;{ ; VDP initialisation data
     .db $00,$87 ; Overscan color
     .db $00,$88 ; X Scroll
     .db $00,$89 ; Y Scroll
-    .db $ff,$8a ; Line Counter
+    .db 72,$8a;$ff,$8a ; Line Counter
 VDPInitData_End: ;}
 
 MainInit:;{
@@ -378,6 +395,11 @@ PrepGame: ;{
     ;ld de, gfxInfo_GadflyMap
     call unsafe_WritePartialTilemap
     
+; Write text to name table in status bar area
+    ld bc,$0201
+    ld hl,Message
+    call unsafe_WriteString
+    
 ; Prepare text writer object
     ld hl, Message
     ld (objCharPointer),hl
@@ -385,6 +407,14 @@ PrepGame: ;{
     ld (objX),a
     ld a,4
     ld (objY),a
+    
+; Set up raster variables
+    ld a,$FF
+    ld (RasterMirror_LineCounterNext),a
+    ld (Raster_LineCounterNext),a
+    ld a,$00
+    ld (RasterMirror_XScroll),a
+    ld (Raster_XScroll),a
     
 MainScreenTurnOn: ; Jump target in case I want to test skipping anything above here
 ; Turn screen on
