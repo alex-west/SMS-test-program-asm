@@ -1015,4 +1015,10 @@ gfx_GadflyPal:
 .incbin "gfx/gadfly.pal" fsize GadflyPalSize
 
 
+;==============================================================
+; Sound Engine
+;==============================================================
+
+.include "lib/PSGlib.inc"
+
 ; EoF
