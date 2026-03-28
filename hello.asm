@@ -87,6 +87,9 @@ banks 1
     objCharPointer dw
     objX db
     objY db
+    
+    portraitNumber db
+    messageNumber db
 
 ; Raster Effect Variables
     ; TODO: Use a tabular approach
@@ -363,15 +366,6 @@ MainInit:;{
 ; Prep Before Main Loop
 ;==============================================================
 PrepGame: ;{
-; Load Palette
-    ; 1. Set VRAM write address to CRAM (palette) address 0
-    ld hl, CRAMWrite|$0000
-    call SetVDPAddress
-    ; 2. Output colour data
-    ld hl, gfx_SamanthaPal ; PortraitPal
-    ld bc, SamanthaPalSize ; PortraitPalSize
-    call CopyToVDP
-    
 ; Load Font
     ; 1. Set VRAM write address to tile index 0
     ld hl,$0000 | VRAMWrite
@@ -381,29 +375,19 @@ PrepGame: ;{
     ld bc,FontDataSize          ; Counter for number of bytes to write
     call CopyToVDP
 
-; Load portrait tiles
-    ld hl, $0C00 | VRAMWrite
-    call SetVDPAddress
-    ld hl, gfx_SamanthaChr
-    ld bc, SamanthaChrSize
-    call CopyToVDP
-
-; Write portrait tilemap
-    ld bc, $0009
-    call GetTilemapAddress
-    ld de, gfxInfo_SamanthaMap
-    ;ld de, gfxInfo_GadflyMap
-    call unsafe_WritePartialTilemap
+    ld a, 0
+    ld (portraitNumber),a
+    call unsafe_drawSamantha
     
 ; Write text to name table in status bar area
     ld bc,$0201
-    ld hl,Message
+    ld hl,Header
     call unsafe_WriteString
     
 ; Prepare text writer object
-    ld hl, Message
+    ld hl, MessageList
     ld (objCharPointer),hl
-    ld a,5
+    ld a,2
     ld (objX),a
     ld a,4
     ld (objY),a
@@ -416,26 +400,11 @@ PrepGame: ;{
     ld (RasterMirror_XScroll),a
     ld (Raster_XScroll),a
     
-MainScreenTurnOn: ; Jump target in case I want to test skipping anything above here
-; Turn screen on
-    ld a,%11100000
-;          ||||||`- Zoomed sprites -> 16x16 pixels
-;          |||||`-- Doubled sprites -> 2 tiles per sprite, 8x16
-;          ||||`--- Mega Drive mode 5 enable
-;          |||`---- 30 row/240 line mode
-;          ||`----- 28 row/224 line mode
-;          |`------ VBlank interrupts
-;          `------- Enable display
-    ld (VDPMirror_ModeB), a
-    out (VDPControl),a
-    ld a,$81
-    out (VDPControl),a
-    
-    ei    
+    call MainScreenTurnOn
 ;}
 
 ;==============================================================
-; Main program
+; Main loop
 ;==============================================================
 MainLoop: ;{
     ; TODO: Logic goes here
@@ -443,6 +412,7 @@ MainLoop: ;{
     inc a
     ld (FrameCount), a
     
+    ; Move it right
     ld a, (Input_PlayerA)
     bit ButtonR_bit, a
     jr z, @endIfA
@@ -452,6 +422,7 @@ MainLoop: ;{
         ld (VDPMirror_XScroll), a
     @endIfA:
 
+    ; Move it left
     ld a, (Input_PlayerA)
     bit ButtonL_bit, a
     jr z, @endIfB
@@ -460,12 +431,82 @@ MainLoop: ;{
         dec a
         ld (VDPMirror_XScroll), a
     @endIfB:
+
+    ; Swap string
+    ld a, (Input_PlayerARising)
+    bit Button1_bit, a
+    jr z, @endIfC
+        ; Clear line
+        ld bc,$0004
+        ld hl,BlankLine
+        call safe_WriteString
+        ; Reset scroll
+        xor a
+        ld (VDPMirror_XScroll), a
+        ; Go to next string
+        ld hl,(objCharPointer)
+        @FindLoop:
+            ld a,(hl)
+            cp $ff
+                jr z,@ExitLoop
+            inc hl
+            jr @FindLoop
+        @ExitLoop:
+        inc hl
+        ld (objCharPointer),hl
+        ld a,(hl)
+        cp $ff
+        jr nz,@NextMessage
+            ; Set up parameters
+            ld hl, MessageList
+            ld (objCharPointer),hl
+        @NextMessage:
+        ld a,2
+        ld (objX),a
+        ld a,4
+        ld (objY),a
+    @endIfC:    
+
+    ; Swap BG
+    ld a, (Input_PlayerARising)
+    bit Button2_bit, a
+    jr z, @endIfD
+        ; Wait for VBlank
+        call WaitForVBlank
+        ; Disable rendering/interrupts
+        call MainScreenTurnOff
+        ; Load graphics
+        ld a,(portraitNumber)
+        cp a,0
+        jr z, @gadfly
+            call unsafe_drawSamantha
+            ld a,$00
+            ld (RasterMirror_XScroll),a
+            ld (Raster_XScroll),a
+            ld a,0
+            ld (portraitNumber),a
+            jr @endIfE
+        @gadfly:
+            call unsafe_drawGadfly
+            ld a,$08
+            ld (RasterMirror_XScroll),a
+            ld (Raster_XScroll),a
+            ld a,1
+            ld (portraitNumber),a
+        @endIfE:
+        ; Enable rendering
+        call MainScreenTurnOn
+    @endIfD:
     
     call WriteString
     
     call WaitForVBlank
     
-jr MainLoop ;}
+jp MainLoop ;}
+
+;==============================================================
+; Main Functions
+;==============================================================
 
 WaitForVBlank: ;{
     ; Clear the last two bytes of VDPTransferBuffer here
@@ -484,11 +525,47 @@ WaitForVBlank: ;{
     jr nz, @waitLoop
 ret ;}
 
+MainScreenTurnOn: ;{
+; Turn screen on
+    ld a,%11100000
+;          ||||||`- Zoomed sprites -> 16x16 pixels
+;          |||||`-- Doubled sprites -> 2 tiles per sprite, 8x16
+;          ||||`--- Mega Drive mode 5 enable
+;          |||`---- 30 row/240 line mode
+;          ||`----- 28 row/224 line mode
+;          |`------ VBlank interrupts
+;          `------- Enable display
+    ld (VDPMirror_ModeB), a
+    out (VDPControl),a
+    ld a,$81
+    out (VDPControl),a
+    
+    ei
+ret ;}
+
+MainScreenTurnOff: ;{
+; Turn screen on
+    ld a,%10000000
+;          ||||||`- Zoomed sprites -> 16x16 pixels
+;          |||||`-- Doubled sprites -> 2 tiles per sprite, 8x16
+;          ||||`--- Mega Drive mode 5 enable
+;          |||`---- 30 row/240 line mode
+;          ||`----- 28 row/224 line mode
+;          |`------ VBlank interrupts
+;          `------- Enable display
+    ld (VDPMirror_ModeB), a
+    out (VDPControl),a
+    ld a,$81
+    out (VDPControl),a
+    
+    di
+ret ;}
+
 WriteString: ;{
     ld a,(objTimer)
     inc a
     ld (objTimer),a
-    cp 5
+    cp 1
     jr nz, @End
         ; Reset timer
         xor a
@@ -516,6 +593,54 @@ WriteString: ;{
         inc a
         ld (objX),a
     @End:
+ret ;}
+
+unsafe_drawSamantha: ;{
+; Load Palette
+    ; 1. Set VRAM write address to CRAM (palette) address 0
+    ld hl, CRAMWrite|$0000
+    call SetVDPAddress
+    ; 2. Output colour data
+    ld hl, gfx_SamanthaPal
+    ld bc, SamanthaPalSize
+    call CopyToVDP
+
+; Load portrait tiles
+    ld hl, $0C00 | VRAMWrite
+    call SetVDPAddress
+    ld hl, gfx_SamanthaChr
+    ld bc, SamanthaChrSize
+    call CopyToVDP
+
+; Write portrait tilemap
+    ld bc, $0009
+    call GetTilemapAddress
+    ld de, gfxInfo_SamanthaMap
+    call unsafe_WritePartialTilemap
+ret ;}
+
+unsafe_drawGadfly: ;{
+; Load Palette
+    ; 1. Set VRAM write address to CRAM (palette) address 0
+    ld hl, CRAMWrite|$0000
+    call SetVDPAddress
+    ; 2. Output colour data
+    ld hl, gfx_GadflyPal
+    ld bc, GadflyPalSize
+    call CopyToVDP
+
+; Load portrait tiles
+    ld hl, $0C00 | VRAMWrite
+    call SetVDPAddress
+    ld hl, gfx_GadflyChr
+    ld bc, GadflyChrSize
+    call CopyToVDP
+
+; Write portrait tilemap
+    ld bc, $0009
+    call GetTilemapAddress
+    ld de, gfxInfo_GadflyMap
+    call unsafe_WritePartialTilemap
 ret ;}
 
 ;==============================================================
@@ -764,8 +889,99 @@ ret ;}
 map " " to "~" = 0
 .enda
 
-Message:
-.asc "Hello world!!!"
+BlankLine:
+.asc "                                "
+.db $ff
+
+Header:
+.asc "> RT-55J's Hello World <"
+.db $ff
+
+MessageList:
+.asc "Press 1 to see the next line."
+.db $ff
+.asc "Press 2 to swap portraits."
+.db $ff
+.asc "L/R can move this text."
+.db $ff
+.asc "That's about it!"
+.db $ff
+.asc "No sprites/sound. Sorry v_v"
+.db $ff
+.asc "I sat on this for a year..."
+.db $ff
+.asc "before deciding to submit."
+.db $ff
+.asc "Kinda forgot about it..."
+.db $ff
+.asc "real like does that to ya."
+.db $ff
+.asc "Assembly's not too hard..."
+.db $ff
+.asc "once you get in the groove."
+.db $ff
+.asc "Anyhow...."
+.db $ff
+.asc "You're probably wondering..."
+.db $ff
+.asc "who these characters are."
+.db $ff
+.asc "The girl is Samantha."
+.db $ff
+.asc "~ Samantha Arantes ~"
+.db $ff
+.asc "!! ORIGINAL CHARACTER !!"
+.db $ff
+.asc "-> DO NOT STEAL <-"
+.db $ff
+.asc "I wanna put her in many games."
+.db $ff
+.asc "I got a website for her:"
+.db $ff
+.asc "> samarantes.neocities.net <"
+.db $ff
+.asc "Check it out!"
+.db $ff
+.asc "The bug is called Goodfry."
+.db $ff
+.asc "Goodfry Gadfly"
+.db $ff
+.asc "He's nothing too special."
+.db $ff
+.asc "Just another character of mine"
+.db $ff
+.asc "I've made lots of ZZT games."
+.db $ff
+.asc "ZZTers know these chars well."
+.db $ff
+.asc "Samantha's had 5 ZZT games."
+.db $ff
+.asc "And Goodfry's had 2 ZZT games."
+.db $ff
+.asc "..."
+.db $ff
+.asc "Credits!!"
+.db $ff
+.asc "Maxim: Hello World Tutorial"
+.db $ff
+.asc "RT-55J: Code"
+.db $ff
+.asc "BachelorSoft: Pixel Art"
+.db $ff
+.asc "_-=/ GREETZ \=-_"
+.db $ff
+.asc "asie"
+.db $ff
+.asc "lidnariq"
+.db $ff
+.asc "PLACEHOLDER"
+.db $ff
+.asc "<3 SMSPower Forever <3"
+.db $ff
+.asc "The End"
+.db $ff
+.asc "THEND"
+.db $ff
 .db $ff
 
 TilemapMessage:
@@ -797,7 +1013,6 @@ gfx_GadflyChr:
 .incbin "gfx/gadfly.chr" fsize GadflyChrSize
 gfx_GadflyPal:
 .incbin "gfx/gadfly.pal" fsize GadflyPalSize
-
 
 
 ; EoF
