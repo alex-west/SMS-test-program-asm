@@ -1005,7 +1005,7 @@ MessageList:
 .db $ff
 .asc "-> DO NOT STEAL <-"
 .db $ff
-.asc "I wanna put her in many games."
+.asc "I wanna put her in many games"
 .db $ff
 .asc "some for the 8-bit Sega!"
 .db $ff
@@ -1075,13 +1075,15 @@ MessageList:
 .db $ff
 .asc "and, most of all, YOU!"
 .db $ff
-.asc "<3 SMSPower Forever <3"
+.asc "<3 SMS Power Forever <3"
 .db $ff
 .asc "PS. AI suuuuuux"
 .db $ff
 .asc "The End"
 .db $ff
 .asc "THEND"
+.db $ff
+.asc "2026"
 .db $ff
 .db $ff
 
