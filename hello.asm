@@ -214,6 +214,8 @@ interruptHandler: ;{
             
         @branch_EveryVBlank:
             ; Updates music
+            call PSGFrame
+            call PSGSFXFrame
             ; Resets scroll value (in case of raster effect)
             ; Preps HBlank interrupts (if applicable)
         jr @exitInterrupt
@@ -360,6 +362,9 @@ MainInit:;{
         inc hl
         dec b
     jr nz, @LoopSAT
+    
+; Initialize Sound Engine
+    call PSGInit
 ;}
 
 ;==============================================================
@@ -399,7 +404,12 @@ PrepGame: ;{
     ld a,$00
     ld (RasterMirror_XScroll),a
     ld (Raster_XScroll),a
-    
+
+; Queue song
+    ld hl,songA
+    call PSGPlay
+
+; Turn screen on
     call MainScreenTurnOn
 ;}
 
@@ -471,6 +481,7 @@ MainLoop: ;{
     ld a, (Input_PlayerARising)
     bit Button2_bit, a
     jr z, @endIfD
+        call PSGStop
         ; Wait for VBlank
         call WaitForVBlank
         ; Disable rendering/interrupts
@@ -485,6 +496,9 @@ MainLoop: ;{
             ld (Raster_XScroll),a
             ld a,0
             ld (portraitNumber),a
+            ; Queue song
+            ld hl,songA
+            call PSGPlay
             jr @endIfE
         @gadfly:
             call unsafe_drawGadfly
@@ -493,6 +507,9 @@ MainLoop: ;{
             ld (Raster_XScroll),a
             ld a,1
             ld (portraitNumber),a
+            ; Queue song
+            ld hl,songB
+            call PSGPlay
         @endIfE:
         ; Enable rendering
         call MainScreenTurnOn
@@ -565,7 +582,7 @@ WriteString: ;{
     ld a,(objTimer)
     inc a
     ld (objTimer),a
-    cp 1
+    cp 2
     jr nz, @End
         ; Reset timer
         xor a
@@ -894,37 +911,91 @@ BlankLine:
 .db $ff
 
 Header:
-.asc "> RT-55J's Hello World <"
+.asc "-=> RT's Last Minute Demo <=-"
 .db $ff
 
 MessageList:
-.asc "Press 1 to see the next line."
+.asc "Button 1: Next line"
 .db $ff
-.asc "Press 2 to swap portraits."
+.asc "Button 2: Swap flavor"
 .db $ff
-.asc "L/R can move this text."
+.asc "Left/Right: Move text"
 .db $ff
-.asc "That's about it!"
+.asc "Hello SMSPower!!"
 .db $ff
-.asc "No sprites/sound. Sorry v_v"
+.asc "I go by \"RT-55J\" on the web."
 .db $ff
-.asc "I sat on this for a year..."
+.asc "(\"RT\" or \"artee\" for short)"
 .db $ff
-.asc "before deciding to submit."
+.asc "I like retro systems."
 .db $ff
-.asc "Kinda forgot about it..."
+.asc "Haven't done much homebrew."
 .db $ff
-.asc "real like does that to ya."
+.asc "I'm more of a romhacker"
 .db $ff
-.asc "Assembly's not too hard..."
+.asc "and a ZZTer!"
 .db $ff
-.asc "once you get in the groove."
+.asc "I tried Channel F homebrew"
+.db $ff
+.asc "a while back."
+.db $ff
+.asc "Never finished my project"
+.db $ff
+.asc "but it's a fun system!"
+.db $ff
+.asc "A framebuffer in 1976!!"
+.db $ff
+.asc "(don't ask about the fillrate)"
+.db $ff
+.asc "Anyhoo, about this demo..."
+.db $ff
+.asc "It's made in pure Z80 ASM."
+.db $ff
+.asc "I made most of it last year."
+.db $ff
+.asc "I could've submitted it then"
+.db $ff
+.asc "but I had other things."
+.db $ff
+.asc "Life happens sometimes..."
+.db $ff
+.asc "Anyhow, I had got text working"
+.db $ff
+.asc "and these pictures displaying"
+.db $ff
+.asc "and this raster split going..."
+.db $ff
+.asc "but then I stopped."
+.db $ff
+.asc "Couldn't swap pics back then."
+.db $ff
+.asc "'Twas pretty bare bones"
+.db $ff
+.asc "(still kinda is tbh)"
+.db $ff
+.asc "I dusted this off yesterday"
+.db $ff
+.asc "cuz Maxim wanted more stuff."
+.db $ff
+.asc "Wrapping this up was easy (!)"
+.db $ff
+.asc "Somehow just got in a groove"
+.db $ff
+.asc "only took a couple of hours"
+.db $ff
+.asc "to finish text handling"
+.db $ff
+.asc "and import these songs"
+.db $ff
+.asc "and so on."
+.db $ff
+.asc "I might use C/SMSlib next time"
+.db $ff
+.asc "but ASM isn't too hard tbh."
 .db $ff
 .asc "Anyhow...."
 .db $ff
-.asc "You're probably wondering..."
-.db $ff
-.asc "who these characters are."
+.asc "about these characters..."
 .db $ff
 .asc "The girl is Samantha."
 .db $ff
@@ -936,9 +1007,13 @@ MessageList:
 .db $ff
 .asc "I wanna put her in many games."
 .db $ff
+.asc "some for the 8-bit Sega!"
+.db $ff
+.asc "(no promises yet)"
+.db $ff
 .asc "I got a website for her:"
 .db $ff
-.asc "> samarantes.neocities.net <"
+.asc "-> samarantes.neocities.org <-"
 .db $ff
 .asc "Check it out!"
 .db $ff
@@ -948,25 +1023,43 @@ MessageList:
 .db $ff
 .asc "He's nothing too special."
 .db $ff
-.asc "Just another character of mine"
+.asc "Just an ordinary bug."
 .db $ff
-.asc "I've made lots of ZZT games."
+.asc "Both are from my ZZT worlds."
 .db $ff
-.asc "ZZTers know these chars well."
+.asc "Samantha's had 5 ZZT games"
 .db $ff
-.asc "Samantha's had 5 ZZT games."
+.asc "and Goodfry's had just 2."
 .db $ff
-.asc "And Goodfry's had 2 ZZT games."
+.asc "In one of them they even met!"
+.db $ff
+.asc "(it was pretty weird tbh)"
 .db $ff
 .asc "..."
 .db $ff
-.asc "Credits!!"
-.db $ff
-.asc "Maxim: Hello World Tutorial"
+.asc "Anyhow, it's time for CREDITS!"
 .db $ff
 .asc "RT-55J: Code"
 .db $ff
 .asc "BachelorSoft: Pixel Art"
+.db $ff
+.asc "Maxim: Hello World Tutorial"
+.db $ff
+.asc "sverx: PSGlib"
+.db $ff
+.asc "Calindro: PSGTool"
+.db $ff
+.asc "### Music ###"
+.db $ff
+.asc "GG Aleste II - Ancient Ruins"
+.db $ff
+.asc "(praise compile)"
+.db $ff
+.asc "(sorry for the sound glitch)"
+.db $ff
+.asc "Side Pocket - Lounge (Select)"
+.db $ff
+.asc "(bless data east)"
 .db $ff
 .asc "_-=/ GREETZ \=-_"
 .db $ff
@@ -974,9 +1067,17 @@ MessageList:
 .db $ff
 .asc "lidnariq"
 .db $ff
-.asc "PLACEHOLDER"
+.asc "neen"
+.db $ff
+.asc "Cera Sizzle"
+.db $ff
+.asc "VeniVidiASCII"
+.db $ff
+.asc "and, most of all, YOU!"
 .db $ff
 .asc "<3 SMSPower Forever <3"
+.db $ff
+.asc "PS. AI suuuuuux"
 .db $ff
 .asc "The End"
 .db $ff
@@ -1020,5 +1121,10 @@ gfx_GadflyPal:
 ;==============================================================
 
 .include "lib/PSGlib.inc"
+
+songA:
+.incbin "ruins.psg"
+songB:
+.incbin "lounge.psg"
 
 ; EoF
